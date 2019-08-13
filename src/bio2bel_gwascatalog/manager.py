@@ -7,6 +7,7 @@ from typing import Mapping
 import pandas as pd
 from pybel import BELGraph
 from pybel.dsl import Gene, Pathology
+from pybel.struct import count_functions
 from tqdm import tqdm
 
 from bio2bel import AbstractManager
@@ -31,37 +32,45 @@ def get_graph() -> BELGraph:
         if pd.isna(mapped_trait_uri):
             continue
 
-        annotations = {} if pd.isna(context) else {
-            'gwascatalog_context': {c.strip() for c in context.split(';')},
+        annotations = {
+            'bio2bel': MODULE_NAME,
         }
 
+        if pd.notna(context):
+            annotations['gwascatalog_context'] = {c.strip() for c in context.split(';')}
+
+        dbsnp_node = Gene(
+            namespace='dbsnp',
+            identifier=snps,
+        )
+        pathology_node = Pathology(
+            namespace='efo',
+            name=mapped_trait,
+            identifier=mapped_trait_uri.split('/')[-1]
+        )
+
         graph.add_association(
-            Gene(
-                namespace='dbsnp',
-                identifier=snps,
-            ),
-            Pathology(
-                namespace='efo',
-                name=mapped_trait,
-                identifier=mapped_trait_uri.split('/')[-1]
-            ),
+            dbsnp_node,
+            pathology_node,
             citation=str(pmid),
             evidence='',
             annotations=annotations,
         )
 
         if intergenic == '0':
-            genes = [g.strip() for g in mapped_gene.split(',')]
-            for g in genes:
-                graph.add_has_variant(
-                    Gene(
-                        namespace='dbsnp',
-                        identifier=snps,
-                    ),
-                    Gene(
-                        namespace='hgnc',
-                        name=g,
-                    ),
+            gene_symbols = [gene_symbol.strip() for gene_symbol in mapped_gene.split(',')]
+            for gene_symbol in gene_symbols:
+                gene_node = Gene(
+                    namespace='hgnc',
+                    name=gene_symbol,
+                )
+                graph.add_has_variant(gene_node, dbsnp_node)
+                graph.add_association(
+                    gene_node,
+                    pathology_node,
+                    citation=str(pmid),
+                    evidence=MODULE_NAME,
+                    annotations=annotations,
                 )
 
     return graph
@@ -78,15 +87,14 @@ class Manager(AbstractManager, BELManagerMixin):
 
     def is_populated(self) -> bool:
         """Check if the Bio2BEL GWAS Catalog database is populated."""
-        raise NotImplementedError
+        return True
 
     def summarize(self) -> Mapping[str, int]:
         """Summarize the contents of the Bio2BEL GWAS Catalog database."""
-        raise NotImplementedError
+        return count_functions(self.to_bel())
 
     def populate(self) -> None:
         """Populate the Bio2BEL GWAS Catalog database."""
-        raise NotImplementedError
 
     def to_bel(self):
         if self.graph is None:
