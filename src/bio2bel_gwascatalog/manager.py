@@ -6,14 +6,14 @@ import logging
 from typing import Mapping
 
 import pandas as pd
+from protmapper.api import hgnc_name_to_id
+from tqdm import tqdm
+
 from bio2bel import AbstractManager
 from bio2bel.manager.bel_manager import BELManagerMixin
-from protmapper.uniprot_client import _build_hgnc_mappings
 from pybel import BELGraph
 from pybel.dsl import Gene, Pathology
 from pybel.struct import count_functions
-from tqdm import tqdm
-
 from .constants import MODULE_NAME
 from .models import Base
 from .parser import df_getter
@@ -37,14 +37,20 @@ def get_graph() -> BELGraph:
         hgnc=r'^((HGNC|hgnc):)?\d{1,5}$',
     ))
 
-    hgnc_name_to_id, _, _ = _build_hgnc_mappings()
-
     it = tqdm(df.values, desc='Mapping GWAS Catalog to BEL')
-    for pmid, mapped_gene, dbsnp_id, context, intergenic, mapped_trait, mapped_trait_uri in it:
+    for (
+        pmid, mapped_gene, dbsnp_id, context, intergenic, minus_log_p_value, risk_allele_frequency,
+        or_or_beta, confidence_interval, mapped_trait, mapped_trait_uri,
+    ) in it:
         if pd.isna(mapped_trait_uri):
             continue
 
-        annotations = {}
+        annotations = dict(
+            minus_log_p_value=minus_log_p_value,
+            risk_allele_frequency=risk_allele_frequency,
+            odds_ratio_or_beta=or_or_beta,
+            confidence_interval=confidence_interval,
+        )
 
         if pd.notna(context):
             annotations['gwascatalog_context'] = {c.strip() for c in context.split(';')}

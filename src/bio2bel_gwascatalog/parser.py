@@ -19,6 +19,10 @@ df_getter = make_df_getter(
         'SNPS',
         'CONTEXT',
         'INTERGENIC',
+        'RISK ALLELE FREQUENCY',
+        'PVALUE_MLOG',
+        'OR or BETA',
+        '95% CI (TEXT)',
         'MAPPED_TRAIT',
         'MAPPED_TRAIT_URI',
     ]
