@@ -2,16 +2,18 @@
 
 """Manager for Bio2BEL GWAS Catalog."""
 
+import logging
 from typing import Mapping
 
 import pandas as pd
+from bio2bel import AbstractManager
+from bio2bel.manager.bel_manager import BELManagerMixin
+from protmapper.uniprot_client import _build_hgnc_mappings
 from pybel import BELGraph
 from pybel.dsl import Gene, Pathology
 from pybel.struct import count_functions
 from tqdm import tqdm
 
-from bio2bel import AbstractManager
-from bio2bel.manager.bel_manager import BELManagerMixin
 from .constants import MODULE_NAME
 from .models import Base
 from .parser import df_getter
@@ -20,6 +22,8 @@ __all__ = [
     'Manager',
 ]
 
+logger = logging.getLogger(__name__)
+
 
 def get_graph() -> BELGraph:
     df = df_getter()
@@ -27,43 +31,59 @@ def get_graph() -> BELGraph:
         name='GWAS Catalog',
         version='1.0.2',
     )
+    graph.namespace_pattern.update(dict(
+        dbsnp=r'^rs\d+$',
+        efo=r'^\d{7}$',
+        hgnc=r'^((HGNC|hgnc):)?\d{1,5}$',
+    ))
+
+    hgnc_name_to_id, _, _ = _build_hgnc_mappings()
+
     it = tqdm(df.values, desc='Mapping GWAS Catalog to BEL')
-    for pmid, mapped_gene, snps, context, intergenic, mapped_trait, mapped_trait_uri in it:
+    for pmid, mapped_gene, dbsnp_id, context, intergenic, mapped_trait, mapped_trait_uri in it:
         if pd.isna(mapped_trait_uri):
             continue
 
-        annotations = {
-            'bio2bel': MODULE_NAME,
-        }
+        annotations = {}
 
         if pd.notna(context):
             annotations['gwascatalog_context'] = {c.strip() for c in context.split(';')}
 
         dbsnp_node = Gene(
             namespace='dbsnp',
-            identifier=snps,
+            identifier=dbsnp_id,
         )
         pathology_node = Pathology(
             namespace='efo',
             name=mapped_trait,
-            identifier=mapped_trait_uri.split('/')[-1]
+            identifier=mapped_trait_uri.split('/')[-1][4:],
         )
 
         graph.add_association(
             dbsnp_node,
             pathology_node,
             citation=str(pmid),
-            evidence='',
+            evidence=MODULE_NAME,
             annotations=annotations,
         )
 
-        if intergenic == '0':
+        if intergenic in {'0', '0.0', 0, 0.0}:
             gene_symbols = [gene_symbol.strip() for gene_symbol in mapped_gene.split(',')]
             for gene_symbol in gene_symbols:
-                gene_node = Gene(
-                    namespace='hgnc',
-                    name=gene_symbol,
-                )
+                hgnc_id = hgnc_name_to_id.get(gene_symbol)
+                if hgnc_id is None:
+                    continue
+                    # TODO lookup for ensembl identifiers
+                    # gene_node = Gene(
+                    #     namespace='ensembl',
+                    #     name=gene_symbol,
+                    # )
+                else:
+                    gene_node = Gene(
+                        namespace='hgnc',
+                        identifier=hgnc_id,
+                        name=gene_symbol,
+                    )
                 graph.add_has_variant(gene_node, dbsnp_node)
                 graph.add_association(
                     gene_node,
